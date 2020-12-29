@@ -1,12 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { TokenModel } from './token.model';
+
+export interface IToken {
+    tokenString: string;
+    validity: Date;
+    role: string;
+}
+
 
 @Injectable()
 export class TokenService {
 
     // Token Structure: { tokenString: string, validity: Date, role: string }
 
-    private tokens: TokenModel[] = [];
+    private tokens: IToken[] = [];
 
     createToken(role: string, validityLength: number) {
         const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -95,7 +101,8 @@ export class TokenService {
             for (let i = 0; i < this.tokens.length; i++) {
                 if (tokenString == this.tokens[i].tokenString) {
                     this.tokens.splice(i, 1);
-                    break;
+
+                    return
                 }
             }
         }

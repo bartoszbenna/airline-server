@@ -17,9 +17,7 @@ export class TokenController {
 
     @Post('logout')
     logout(@Body() postData: tokenStringDto) {
-        if (this.tokenService.doesExist(postData.tokenString)) {
-            this.tokenService.deleteToken(postData.tokenString);
-        }
+        this.tokenService.deleteToken(postData.tokenString);
     }
 
     @Get('getTokens')
