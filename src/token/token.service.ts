@@ -1,29 +1,22 @@
 import { Injectable } from '@nestjs/common';
-
-export interface IToken {
-    tokenString: string;
-    validity: Date;
-    role: string;
-}
-
+import { LoginToken, LoginTokenDocument } from './schemas/loginToken.schema';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 
 @Injectable()
 export class TokenService {
 
-    // Token Structure: { tokenString: string, validity: Date, role: string }
+    constructor(@InjectModel(LoginToken.name) private loginTokenModel: Model<LoginTokenDocument>) {}
 
-    private tokens: IToken[] = [];
-
-    createToken(role: string, validityLength: number) {
+    async createToken(userId: string, validityLength: number) {
         const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        let tokenArray = [];
-        let tokenString: string;
+        const tokenArray = [];
 
         for(let i = 0; i < 20; i++) {
             tokenArray.push(characters[Math.floor(Math.random() * characters.length)]);
         }
 
-        tokenString = tokenArray.join('');
+        const tokenString = tokenArray.join('');
 
         const validity = new Date();
         validity.setMinutes(validity.getMinutes() + validityLength);
@@ -31,80 +24,37 @@ export class TokenService {
         let token = { 
             tokenString: tokenString,
             validity: validity,
-            role: role
+            userId: userId
         }
+
+        const existingSameTokens = await this.getLoginToken(token.tokenString);
         
-        if (this.doesExist(token.tokenString)) {
-            token = this.createToken(role, validityLength);
+        if (existingSameTokens.length != 0) {
+            token = await this.createToken(userId, validityLength);
             return token;
         }
         else {
-            this.tokens.push(token);
+            this.loginTokenModel.create({userId: token.userId, token: token.tokenString, validity: token.validity});
             return token;
         }
     }
 
-    isValid(tokenString: string) {
-        this.removeInvalid();
-        
-        if (this.doesExist(tokenString)) {
-            const token = this.tokens.find(currentToken => currentToken.tokenString == tokenString);
-            if (token.validity > new Date()) {
-                return true;
-            }
+    async getLoginToken(tokenString: string) {
+        try {
+            const tokens = await this.loginTokenModel.find({token: tokenString})
+            return tokens;
         }
-        return false;
-    }
-
-    removeInvalid() {
-        for(let i = 0; i < this.tokens.length; i++) {
-            const thisToken = this.tokens[i];
-            if (thisToken.validity < new Date()) {
-                this.tokens.splice(i, 1);
-                i--;
-            }
+        catch (error) {
+            throw new Error('databaseError');
         }
     }
 
-    doesExist(tokenString: string) {
-        this.removeInvalid();
-        
-        let exists = false;
-        
-        this.tokens.forEach((currentToken) => {
-            if (tokenString == currentToken.tokenString) {
-                exists = true;
-            }
-        })
-        return exists;
-    }
-
-    getTokens() {
-        this.removeInvalid();
-
-        return this.tokens;
-    }
-
-    getRole(tokenString: string) {
-        if (this.isValid(tokenString)) {
-            for (let i = 0; i < this.tokens.length; i++) {
-                if (tokenString == this.tokens[i].tokenString) {
-                    return this.tokens[i].role;
-                }
-            }
+    async removeToken(tokenString: string) {
+        try {
+            await this.loginTokenModel.remove({token: tokenString});
         }
-        return '';
-    }
-
-    deleteToken(tokenString: string) {
-        if (this.doesExist(tokenString)) {
-            for (let i = 0; i < this.tokens.length; i++) {
-                if (tokenString == this.tokens[i].tokenString) {
-                    this.tokens.splice(i, 1);
-
-                    return
-                }
-            }
+        catch (error) {
+            throw new Error('databaseError');
         }
     }
 }
