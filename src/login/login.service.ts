@@ -1,15 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { TokenService } from 'src/token/token.service';
 import { User, UserDocument } from './schemas/user.schema';
 import * as bcrypt from 'bcrypt';
-
-interface ILoginData {
-    email: string,
-    password: string,
-    role: string
-}
+import * as jwt from 'jsonwebtoken';
 
 export interface ISignupData {
     email: string,
@@ -21,11 +15,11 @@ export interface ISignupData {
 @Injectable()
 export class LoginService {
 
-    private tokenValidityLength = 2;
+    public tokenValidityLengthMinutes = 10;
     private saltRounds = 10;
+    private secret = 'abcd';
     
-    constructor(private tokenService: TokenService,
-        @InjectModel(User.name) private userModel: Model<UserDocument>) {}
+    constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
     
     async login(email: string, password: string) {
         const loginPromise = new Promise(async (resolve, reject) => {
@@ -49,8 +43,8 @@ export class LoginService {
                     }
                     else if (result == true) {
                         try {
-                            const token = await this.tokenService.createToken(users[0]._id, this.tokenValidityLength);
-                            resolve({ tokenString: token.tokenString, validity: token.validity }) 
+                            const token = this.createToken(users[0]._id, users[0].currentKey);
+                            resolve(token) 
                         }
                         catch (error) {
                             reject('tokenCreationError')
@@ -81,19 +75,54 @@ export class LoginService {
                 reject('userExists')
             }
             else {
-                bcrypt.hash(data.password, this.saltRounds, (hasherr, hash) => {
-                    this.userModel.create({email: email, hash: hash, firstName: firstName, lastName: lastName, role: "client"}, (createerr) => {
-                        if (createerr == null && hasherr == null) {
-                            resolve('success');
-                        }
-                        else {
-                            reject('databaseError');
-                        }
-                    })
+                const currentKey = this.randomizeString(10);
+                bcrypt.hash(data.password, this.saltRounds, async (hasherr, hash) => {
+                    try {
+                        const user = await this.userModel.create({
+                            email: email,
+                            hash: hash,
+                            firstName: firstName,
+                            lastName: lastName,
+                            role: "client",
+                            currentKey: currentKey
+                        });
+                        const token = this.createToken(user._id, user.currentKey);
+                        resolve(token);
+                    }
+                    catch (error) {
+                        reject('databaseError')
+                    }
                 })
             }
         });
         const result = await createPromise;
+        return result;
+    }
+
+    async validate(tokenString: string) {
+        const validationPromise = new Promise(async (resolve, reject) => {
+            try {
+                const decodedToken: any = jwt.verify(tokenString, this.secret);
+                const user = await this.getUserInfo(decodedToken.userId);
+                if (user.currentKey == decodedToken.currentKey) {
+                    const newToken = this.createToken(user._id, user.currentKey);
+                    resolve({
+                        userData: {
+                            email: user.email,
+                            firstName: user.firstName,
+                            lastName: user.lastName,
+                            role: user.role
+                        },
+                        newToken: newToken
+                    })
+                }
+                reject('keyError');
+            }
+            catch (error) {
+                reject('tokenError');
+            }
+        })
+        const result = await validationPromise;
         return result;
     }
 
@@ -105,5 +134,20 @@ export class LoginService {
         catch (error) {
             throw new Error('databaseError');
         }
+    }
+
+    createToken(userId: string, currentKey: string) {
+        return jwt.sign({userId: userId, currentKey: currentKey}, this.secret, {expiresIn: this.tokenValidityLengthMinutes * 60});
+    }
+
+    randomizeString(length: number) {
+        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        const stringArray = [];
+
+        for(let i = 0; i < length; i++) {
+            stringArray.push(characters[Math.floor(Math.random() * characters.length)]);
+        }
+
+        return stringArray.join('');
     }
 }

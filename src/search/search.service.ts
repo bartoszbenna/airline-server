@@ -37,10 +37,10 @@ export class SearchService {
         const arrCode = form.arrival;
         const outDate = form.outDate;
         const inDate = form.inDate;
-        let minOutDate = moment(new Date(outDate)).subtract(1, 'days').startOf('days');
-        let maxOutDate = moment(new Date(outDate)).add(1, 'days').endOf('days');
-        let minInDate = moment(new Date(inDate)).subtract(1, 'days').startOf('days');
-        let maxInDate = moment(new Date(inDate)).add(1, 'days').endOf('days');
+        let minOutDate = moment.utc(new Date(outDate)).subtract(1, 'days').startOf('days');
+        let maxOutDate = moment.utc(new Date(outDate)).add(1, 'days').endOf('days');
+        let minInDate = moment.utc(new Date(inDate)).subtract(1, 'days').startOf('days');
+        let maxInDate = moment.utc(new Date(inDate)).add(1, 'days').endOf('days');
         let inbounds: ISearchResult[] = [];
         let outbounds: ISearchResult[] = [];
 

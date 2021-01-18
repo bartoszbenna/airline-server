@@ -1,4 +1,5 @@
-import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, HttpException, HttpStatus, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { TokenService } from 'src/token/token.service';
 import { ISignupData, LoginService } from './login.service';
 
@@ -7,23 +8,20 @@ interface ILoginData {
     password: string;
 }
 
-interface ITokenData {
-    tokenString: string;
-}
-
 @Controller('login')
 export class LoginController {
 
     constructor(private loginService: LoginService, private tokenService: TokenService) {}
 
     @Post('authorize')
-    async login(@Body() data: ILoginData) {
+    async login(@Body() data: ILoginData, @Res() response: Response) {
         if (data.email == undefined || data.password == undefined) {
             throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST);
         }
         try {
             const result = await this.loginService.login(data.email, data.password);
-            return result;
+            response.cookie('token', result, {maxAge: this.loginService.tokenValidityLengthMinutes * 60000, secure: true});
+            response.send();
         }
         catch(error) {
             //possible errors: databaseError, userNotFound, passwordIncorrect, tokenCreationError
@@ -37,13 +35,14 @@ export class LoginController {
     }
 
     @Post('create')
-    async create(@Body() data: ISignupData) {
+    async create(@Body() data: ISignupData, @Res() response: Response) {
         if (data.email == undefined || data.password == undefined || data.firstName == undefined || data.lastName == undefined) {
             throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST);
         }
         try {
             const result = await this.loginService.createAccount(data);
-            console.log(result);
+            response.cookie('token', result, {maxAge: this.loginService.tokenValidityLengthMinutes * 60000, secure: true});
+            response.send();
         }
         catch (error) {
             //possible errors: databaseError, userExists
@@ -56,50 +55,19 @@ export class LoginController {
         }
     }
 
-    @Post('logout')
-    async logout(@Body() data: ITokenData) {
-        if (data.tokenString == undefined) {
-            throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST)
+    @Get('verify')
+    async verifyToken(@Headers('x-access-token') accessToken: string, @Res() response: Response) {
+        if (accessToken == undefined) {
+            throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST);
         }
-        try {
-            this.tokenService.removeToken(data.tokenString);
-        }
-        catch (error) {
-            //possible errors: databaseError
-            throw new HttpException('Internal server error', HttpStatus.INTERNAL_SERVER_ERROR)
-        }
-    }
-
-    @Post('validate')
-    async validate(@Body() data: ITokenData) {
-        if (data.tokenString == undefined) {
-            throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST)
-        }
-        try {
-            const token = await this.tokenService.getLoginToken(data.tokenString);
-            if (token.length == 1) {
-                const userData = await this.loginService.getUserInfo(token[0].userId);
-                if (userData != undefined && userData != null) {
-                    return {
-                        email: userData.email,
-                        firstName: userData.firstName,
-                        lastName: userData.lastName,
-                        role: userData.role
-                    }
-                }
+        else {
+            try {
+                const result: any = await this.loginService.validate(accessToken);
+                response.cookie('token', result.newToken, {maxAge: this.loginService.tokenValidityLengthMinutes * 60000, secure: true});
+                response.send(result.userData);
             }
-            //invalid token or user does not exist
-            throw new Error('invalidData')
-
-        }
-        catch (error) {
-            //possible errors: databaseError
-            console.log(error);
-            if (error == 'invalidData') {
-                throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED)
-            }
-            else {
-                throw new HttpException('Internal server error' + error, HttpStatus.INTERNAL_SERVER_ERROR)
+            catch (error) {
+                throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
             }
         }
     }
