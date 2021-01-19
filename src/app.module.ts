@@ -4,10 +4,9 @@ import { AppService } from './app.service';
 import { MongooseModule } from '@nestjs/mongoose';
 import { SearchModule } from './search/search.module';
 import { LoginModule } from './login/login.module';
-import { TokenModule } from './token/token.module';
 
 @Module({
-  imports: [MongooseModule.forRoot('mongodb://localhost:27017/airline'), SearchModule, LoginModule, TokenModule],
+  imports: [MongooseModule.forRoot('mongodb://localhost:27017/airline'), SearchModule, LoginModule],
   controllers: [AppController],
   providers: [AppService],
 })
