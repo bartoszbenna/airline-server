@@ -1,6 +1,5 @@
 import { Controller, Post, Get, Body, Headers, HttpException, HttpStatus, Res } from '@nestjs/common';
 import { Response } from 'express';
-import { TokenService } from 'src/token/token.service';
 import { ISignupData, LoginService } from './login.service';
 
 interface ILoginData {
@@ -11,7 +10,7 @@ interface ILoginData {
 @Controller('login')
 export class LoginController {
 
-    constructor(private loginService: LoginService, private tokenService: TokenService) {}
+    constructor(private loginService: LoginService) {}
 
     @Post('authorize')
     async login(@Body() data: ILoginData, @Res() response: Response) {
