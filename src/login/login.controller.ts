@@ -19,7 +19,7 @@ export class LoginController {
         }
         try {
             const result = await this.loginService.login(data.email, data.password);
-            response.cookie('token', result, {maxAge: this.loginService.tokenValidityLengthMinutes * 60000, secure: true});
+            response.cookie('token', result, {secure: true});
             response.send();
         }
         catch(error) {
@@ -62,7 +62,7 @@ export class LoginController {
         else {
             try {
                 const result: any = await this.loginService.validate(accessToken);
-                response.cookie('token', result.newToken, {maxAge: this.loginService.tokenValidityLengthMinutes * 60000, secure: true});
+                response.cookie('token', result.newToken, {secure: true});
                 response.send(result.userData);
             }
             catch (error) {

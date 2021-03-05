@@ -19,9 +19,18 @@ export class Flight {
         
     @Prop()
     arrCode: string;
+
+    @Prop()
+    planeType: string;
         
     @Prop()
     price: number;
+
+    @Prop()
+    available: number;
+
+    @Prop()
+    occupiedSeats: string[];
 }
 
 export const FlightSchema = SchemaFactory.createForClass(Flight);

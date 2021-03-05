@@ -150,4 +150,8 @@ export class LoginService {
 
         return stringArray.join('');
     }
+
+    decodeToken(token: string) {
+        return jwt.verify(token, this.secret);
+    }
 }
