@@ -7,14 +7,14 @@ import { Airport, AirportDocument } from './schemas/airport.schema';
 import { Flight, FlightDocument } from './schemas/flight.schema';
 import { SeatMap, SeatMapDocument } from './schemas/seatmap.schema';
 
-export interface ISearchResult {
-    flightNumber: string,
-    depDate: Date,
-    arrDate: Date,
-    depCode: string,
-    arrCode: string,
-    price: number,
-  }
+// export interface ISearchResult {
+//     flightNumber: string,
+//     depDate: Date,
+//     arrDate: Date,
+//     depCode: string,
+//     arrCode: string,
+//     price: number,
+//   }
 
 export class SearchForm {
     oneWay: boolean
@@ -46,8 +46,16 @@ export class SearchService {
         let maxOutDate = moment.utc(new Date(outDate)).add(1, 'days').endOf('days');
         let minInDate = moment.utc(new Date(inDate)).subtract(1, 'days').startOf('days');
         let maxInDate = moment.utc(new Date(inDate)).add(1, 'days').endOf('days');
-        let inbounds: ISearchResult[] = [];
-        let outbounds: ISearchResult[] = [];
+        let inbounds: FlightDocument[] = [];
+        let outbounds: FlightDocument[] = [];
+
+        if (minOutDate.isBefore(new Date())) {
+            minOutDate = moment.utc(new Date()).startOf('days');
+        }
+
+        if (minInDate.isBefore(minOutDate)) {
+            minInDate = minOutDate;
+        }
 
         const outboundPromise = this.flightModel.find({
             depCode: depCode,
@@ -77,6 +85,26 @@ export class SearchService {
         }
         return {outbound: outbounds, inbound: inbounds}
     }
+
+    // async setOffers() {
+    //     const airports = await this.getAirports();
+    //     for (let depAirport of airports) {
+    //         for (let arrAirport of airports) {
+    //             if (depAirport.code == arrAirport.code) {
+    //                 continue;
+    //             }
+    //             const flights = await this.flightModel.find({depCode: depAirport.code, arrCode: arrAirport.code});
+    //             let cheapestFight = flights.length != 0 ? flights[0] : null;
+    //             for (let flight of flights) {
+    //                 if (flight.price < cheapestFight.price) {
+    //                     cheapestFight = flight;
+    //                 }
+    //             }
+    //             cheapestFight.isOffer = true;
+    //             await cheapestFight.save();
+    //         }
+    //     }
+    // }
 
     async getAirports() {
         const airports = await this.airportModel.find();
@@ -205,5 +233,19 @@ export class SearchService {
         catch(error) {
             return false;
         }
+    }
+
+    async getOffers(airportCode: string) {
+        const offersPromise = new Promise<FlightDocument[]>(async(resolve, reject) => {
+            try {
+                const offers = await this.flightModel.find({depCode: airportCode, isOffer: true});
+                resolve(offers);
+            }
+            catch (error) {
+                reject('databaseError');
+            }
+        })
+        const result = await offersPromise;
+        return result;
     }
 }

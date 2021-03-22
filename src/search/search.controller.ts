@@ -81,4 +81,25 @@ export class SearchController {
             }
         }
     }
+
+    @Get('getOffers')
+    async getOffers(@Query() params) {
+        if (params.airport == undefined || typeof params.airport != "string") {
+            throw new HttpException('Bad request', HttpStatus.BAD_REQUEST)
+        }
+        else {
+            try {
+                const offers = await this.searchService.getOffers(params.airport);
+                return offers;
+            }
+            catch (error) {
+                throw new HttpException('Internal server error', HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+        }
+    }
+
+    // @Get('setOffers')
+    // async setOffers() {
+    //     await this.searchService.setOffers();
+    // }
 }

@@ -61,8 +61,15 @@ export class ReservationService {
 
     constructor(
         @InjectModel(Reservation.name) private reservationModel: Model<ReservationDocument>,
-        private basketService: BasketService, private loginService: LoginService,
-        private searchService: SearchService) { }
+        private basketService: BasketService, 
+        private loginService: LoginService,
+        private searchService: SearchService) 
+        {
+            // run this every 5 minutes
+            setInterval(() => {
+                this.removeUnconfirmedReservations();
+            }, 300000)
+        }
 
     public async createNewReservation(data: IReservationCreationData, token: string) {
         const reservationCreationPromise = new Promise(async (resolve, reject) => {
@@ -275,5 +282,38 @@ export class ReservationService {
         })
         const result = await reservationConfirmationPromise;
         return result;
+    }
+
+    public async removeUnconfirmedReservations() {
+        try {
+            let expiryDate = new Date();
+            expiryDate.setMinutes(expiryDate.getMinutes() - 30);
+            const unconfirmedReservations = await this.reservationModel.find({reservationDate: {$lte: expiryDate}, isConfirmed: false});
+            for (let res of unconfirmedReservations) {
+                try {
+                    for (let flight of res.flights) {
+                        let paxNumber = 0;
+                        for (let passenger of flight.passengers) {
+                            if (passenger.type == 'adult' || passenger.type == 'child') {
+                                paxNumber += 1;
+                            }
+                        }
+                        await this.searchService.changeAvailability(flight._id, paxNumber);
+                        for (let passenger of flight.passengers) {
+                            if (passenger.seat != "") {
+                                await this.searchService.changeSeatAvailability(flight._id, passenger.seat, false);
+                            }
+                        }
+                    }
+                    res.delete();
+                }
+                catch (error) {
+                    console.log('Error while deleting unconfirmed reservations!')
+                }
+            }
+        }
+        catch(error) {
+            console.log('Error while deleting unconfirmed reservations!')
+        }
     }
 }

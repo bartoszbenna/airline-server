@@ -31,6 +31,9 @@ export class Flight {
 
     @Prop()
     occupiedSeats: string[];
+
+    @Prop()
+    isOffer: boolean;
 }
 
 export const FlightSchema = SchemaFactory.createForClass(Flight);
