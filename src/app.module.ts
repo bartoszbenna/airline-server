@@ -9,7 +9,7 @@ import { ReservationModule } from './reservation/reservation.module';
 import { PaymentModule } from './payment/payment.module';
 
 @Module({
-  imports: [MongooseModule.forRoot('mongodb://localhost:27017/airline'), SearchModule, LoginModule, BasketModule, ReservationModule, PaymentModule],
+  imports: [MongooseModule.forRoot('mongodb+srv://admin:admin@airline-cluster.m0nwy.mongodb.net/airline?retryWrites=true&w=majority'), SearchModule, LoginModule, BasketModule, ReservationModule, PaymentModule],
   controllers: [AppController],
   providers: [AppService],
 })

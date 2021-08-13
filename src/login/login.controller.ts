@@ -40,7 +40,7 @@ export class LoginController {
         }
         try {
             const result = await this.loginService.createAccount(data);
-            response.cookie('token', result, {maxAge: this.loginService.tokenValidityLengthMinutes * 60000, secure: true});
+            //response.cookie('token', result, {maxAge: this.loginService.tokenValidityLengthMinutes * 60000, secure: true});
             response.send();
         }
         catch (error) {

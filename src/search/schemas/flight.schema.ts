@@ -5,35 +5,35 @@ export type FlightDocument = Flight & Document;
 
 @Schema()
 export class Flight {
-    @Prop()
-    flightNumber: string;
-        
-    @Prop()
-    depDate: Date;
-        
-    @Prop()
-    arrDate: Date;
-        
-    @Prop()
-    depCode: string;
-        
-    @Prop()
-    arrCode: string;
+  @Prop()
+  flightNumber!: string;
 
-    @Prop()
-    planeType: string;
-        
-    @Prop()
-    price: number;
+  @Prop()
+  depDate!: Date;
 
-    @Prop()
-    available: number;
+  @Prop()
+  arrDate!: Date;
 
-    @Prop()
-    occupiedSeats: string[];
+  @Prop()
+  depCode!: string;
 
-    @Prop()
-    isOffer: boolean;
+  @Prop()
+  arrCode!: string;
+
+  @Prop()
+  planeType!: string;
+
+  @Prop()
+  price!: number;
+
+  @Prop()
+  available!: number;
+
+  @Prop()
+  occupiedSeats!: string[];
+
+  @Prop()
+  isOffer!: boolean;
 }
 
 export const FlightSchema = SchemaFactory.createForClass(Flight);
