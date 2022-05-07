@@ -1,31 +1,18 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import {
+  forwardRef,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import * as moment from 'moment';
-import { Model } from 'mongoose';
+import { ClientSession, Model } from 'mongoose';
 import { BasketService } from 'src/basket/basket.service';
 import { Airport, AirportDocument } from './schemas/airport.schema';
 import { Flight, FlightDocument } from './schemas/flight.schema';
 import { SeatMap, SeatMapDocument } from './schemas/seatmap.schema';
-
-// export interface ISearchResult {
-//     flightNumber: string,
-//     depDate: Date,
-//     arrDate: Date,
-//     depCode: string,
-//     arrCode: string,
-//     price: number,
-//   }
-
-export interface SearchForm {
-  oneWay: boolean;
-  departure: string;
-  arrival: string;
-  outDate: Date;
-  inDate: Date;
-  adult: number;
-  child: number;
-  infant: number;
-}
+import { DateTime } from 'luxon';
+import { GetResultsDto } from './dtos/GetResults.dto';
 
 @Injectable()
 export class SearchService {
@@ -37,61 +24,183 @@ export class SearchService {
     private basketService: BasketService,
   ) {}
 
-  async search(form: SearchForm) {
+  public async search(
+    form: GetResultsDto,
+  ): Promise<{ outbound: FlightDocument[]; inbound?: FlightDocument[] }> {
     await this.basketService.removeExpiredBaskets();
     const oneWay = form.oneWay;
     const depCode = form.departure;
     const arrCode = form.arrival;
     const outDate = form.outDate;
     const inDate = form.inDate;
-    let minOutDate = moment
-      .utc(new Date(outDate))
-      .subtract(1, 'days')
+    let minOutDate = DateTime.fromISO(outDate)
+      .toUTC()
+      .minus({ days: 1 })
       .startOf('days');
-    let maxOutDate = moment.utc(new Date(outDate)).add(1, 'days').endOf('days');
-    let minInDate = moment
-      .utc(new Date(inDate))
-      .subtract(1, 'days')
+    const maxOutDate = DateTime.fromISO(outDate)
+      .toUTC()
+      .plus({ days: 1 })
+      .endOf('days');
+    let minInDate = DateTime.fromISO(inDate)
+      .toUTC()
+      .minus({ days: 1 })
       .startOf('days');
-    let maxInDate = moment.utc(new Date(inDate)).add(1, 'days').endOf('days');
-    let inbounds: FlightDocument[] = [];
-    let outbounds: FlightDocument[] = [];
+    const maxInDate = DateTime.fromISO(inDate)
+      .toUTC()
+      .plus({ days: 1 })
+      .endOf('days');
 
-    if (minOutDate.isBefore(new Date())) {
-      minOutDate = moment.utc(new Date()).startOf('days');
+    if (minOutDate < DateTime.now()) {
+      minOutDate = DateTime.now().startOf('days');
     }
 
-    if (minInDate.isBefore(minOutDate)) {
+    if (minInDate < minOutDate) {
       minInDate = minOutDate;
     }
 
-    const outboundPromise = this.flightModel.find({
+    const outbounds = await this.flightModel.find({
       depCode: depCode,
       arrCode: arrCode,
       depDate: {
-        $gte: minOutDate.toDate(),
-        $lte: maxOutDate.toDate(),
+        $gte: minOutDate.toJSDate(),
+        $lte: maxOutDate.toJSDate(),
       },
       available: {
         $gte: form.adult + form.child,
       },
     });
 
-    outbounds = await outboundPromise;
-
-    if (!oneWay) {
-      const inboundPromise = this.flightModel.find({
-        depCode: arrCode,
-        arrCode: depCode,
-        depDate: {
-          $gte: minInDate.toDate(),
-          $lte: maxInDate.toDate(),
-        },
-      });
-
-      inbounds = await inboundPromise;
+    if (oneWay) {
+      return {
+        outbound: outbounds,
+      };
     }
+
+    const inbounds = await this.flightModel.find({
+      depCode: arrCode,
+      arrCode: depCode,
+      depDate: {
+        $gte: minInDate.toJSDate(),
+        $lte: maxInDate.toJSDate(),
+      },
+    });
     return { outbound: outbounds, inbound: inbounds };
+  }
+
+  public async getAirports(): Promise<AirportDocument[]> {
+    return this.airportModel.find();
+  }
+
+  public async getFlightById(
+    id: string,
+    session?: ClientSession,
+  ): Promise<FlightDocument | null> {
+    return this.flightModel.findById(id).session(session ?? null);
+  }
+
+  public async changeAvailability(
+    flightId: string,
+    amount: number,
+    session?: ClientSession,
+  ): Promise<boolean> {
+    try {
+      const flight = await this.flightModel
+        .findById(flightId)
+        .session(session ?? null);
+      if (flight) {
+        const seatMap = await this.getSeatMap(flight.planeType, session);
+        const maxAvailable = seatMap?.seatMap.length ?? 0;
+        flight.available += amount;
+        if (flight.available < 0 || flight.available > maxAvailable) {
+          return false;
+        }
+        await flight.save(session ? { session } : undefined);
+        return true;
+      }
+    } catch (err) {
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+    throw new HttpException('Flight not found', HttpStatus.NOT_FOUND);
+  }
+
+  public async getSeatMap(
+    type: string,
+    session?: ClientSession,
+  ): Promise<SeatMapDocument | null> {
+    return this.seatMapModel.findOne({ type: type }).session(session ?? null);
+  }
+
+  public async getOccupiedSeats(id: string): Promise<FlightDocument | null> {
+    return this.flightModel.findById(id);
+  }
+
+  public async isSeatOccupied(
+    flightId: string,
+    seat: string,
+    session?: ClientSession,
+  ): Promise<boolean> {
+    try {
+      const flight = await this.flightModel
+        .findById(flightId)
+        .session(session ?? null);
+      if (flight) {
+        return flight.occupiedSeats.includes(seat);
+      }
+    } catch (err) {
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+    throw new HttpException('Flight not found', HttpStatus.NOT_FOUND);
+  }
+
+  public async changeSeatAvailability(
+    flightId: string,
+    seat: string,
+    newOccupiedValue: boolean,
+    session?: ClientSession,
+  ): Promise<boolean> {
+    try {
+      const flight = await this.flightModel
+        .findById(flightId)
+        .session(session ?? null);
+      if (flight) {
+        if (newOccupiedValue) {
+          if (flight.occupiedSeats.includes(seat)) {
+            throw new HttpException(
+              'Seat already occupied',
+              HttpStatus.CONFLICT,
+            );
+          }
+          flight.occupiedSeats.push(seat);
+          await flight.save(session ? { session } : undefined);
+          return true;
+        }
+        if (!flight.occupiedSeats.includes(seat)) {
+          throw new HttpException('Seat not occupied', HttpStatus.CONFLICT);
+        }
+        flight.occupiedSeats.splice(flight.occupiedSeats.indexOf(seat), 1);
+        await flight.save(session ? { session } : undefined);
+        return true;
+      }
+      throw new HttpException('Flight not found', HttpStatus.NOT_FOUND);
+    } catch (err) {
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  public async getOffers(airportCode: string): Promise<FlightDocument[]> {
+    return this.flightModel.find({
+      depCode: airportCode,
+      isOffer: true,
+    });
   }
 
   // async setOffers() {
@@ -113,148 +222,4 @@ export class SearchService {
   //         }
   //     }
   // }
-
-  async getAirports() {
-    const airports = await this.airportModel.find();
-    return airports;
-  }
-
-  async getFlightById(id: string) {
-    const flightPromise = new Promise<FlightDocument>(
-      async (resolve, reject) => {
-        try {
-          const flight = await this.flightModel.findById(id);
-          if (flight == null || flight == undefined) {
-            reject('flightNotFound');
-          } else {
-            resolve(flight);
-          }
-        } catch (error) {
-          reject('databaseError');
-        }
-      },
-    );
-    const result = await flightPromise;
-    return result;
-  }
-
-  async changeAvailability(flightId: string, amount: number) {
-    const flightPromise = new Promise<FlightDocument>(
-      async (resolve, reject) => {
-        try {
-          const flight = await this.flightModel.findById(flightId);
-          if (flight == null || flight == undefined) {
-            reject('flightNotFound');
-          } else {
-            flight.available += amount;
-            resolve(await flight.save());
-          }
-        } catch (error) {
-          reject('databaseError');
-        }
-      },
-    );
-    const result = await flightPromise;
-    return result;
-  }
-
-  async getSeatMap(type: string) {
-    const seatMapPromise = new Promise<string[][]>(async (resolve, reject) => {
-      try {
-        const seatMap = await this.seatMapModel.findOne({ type: type });
-        if (seatMap == null) {
-          reject('notFound');
-          return;
-        } else {
-          resolve(seatMap.seatMap);
-        }
-      } catch (error) {
-        reject('databaseError');
-      }
-    });
-    const result = await seatMapPromise;
-    return result;
-  }
-
-  async getOccupiedSeats(id: string) {
-    const seatsPromise = new Promise<string[]>(async (resolve, reject) => {
-      try {
-        const flight = await this.flightModel.findById(id);
-        if (flight == null) {
-          reject('flightNotFound');
-        } else {
-          resolve(flight.occupiedSeats);
-        }
-      } catch (error) {
-        reject('databaseError');
-      }
-    });
-    const result = await seatsPromise;
-    return result;
-  }
-
-  async isSeatOccupied(flightId: string, seat: string) {
-    const seatPromise = new Promise<boolean>(async (resolve, reject) => {
-      try {
-        const flight = await this.flightModel.findById(flightId);
-        if (flight != null) {
-          resolve(flight.occupiedSeats.includes(seat));
-        } else {
-          reject('flightNotFound');
-        }
-      } catch (error) {
-        reject('databaseError');
-      }
-    });
-    const result = await seatPromise;
-    return result;
-  }
-
-  async changeSeatAvailability(
-    flightId: string,
-    seat: string,
-    makeOccupied: boolean,
-  ) {
-    try {
-      const flight = await this.flightModel.findById(flightId);
-      if (flight == null) {
-        return false;
-      }
-      if (makeOccupied) {
-        if (flight.occupiedSeats.includes(seat)) {
-          return false;
-        }
-        flight.occupiedSeats.push(seat);
-        flight.save();
-        return true;
-      } else {
-        if (!flight.occupiedSeats.includes(seat)) {
-          return false;
-        }
-        flight.occupiedSeats.splice(flight.occupiedSeats.indexOf(seat), 1);
-        flight.save();
-        return true;
-      }
-    } catch (error) {
-      return false;
-    }
-  }
-
-  async getOffers(airportCode: string) {
-    const offersPromise = new Promise<FlightDocument[]>(
-      async (resolve, reject) => {
-        try {
-          const offers = await this.flightModel.find({
-            depCode: airportCode,
-            isOffer: true,
-          });
-          resolve(offers);
-        } catch (error) {
-          reject('databaseError');
-        }
-      },
-    );
-    const result = await offersPromise;
-    return result;
-  }
 }

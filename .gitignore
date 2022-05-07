@@ -1,6 +1,10 @@
 # compiled output
 /dist
 /node_modules
+package-lock.json
+
+# env variables
+.env
 
 # Logs
 logs

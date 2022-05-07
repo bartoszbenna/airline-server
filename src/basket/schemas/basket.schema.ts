@@ -1,20 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
-
-export interface IFlight {
-  _id: string;
-  flightNumber: string;
-  depDate: Date;
-  arrDate: Date;
-  depCode: string;
-  arrCode: string;
-  planeType: string;
-  occupiedSeats: string[];
-  price: number;
-  adult: number;
-  child: number;
-  infant: number;
-}
+import { BasketFlightSchema } from './basket-flight.schema';
 
 export type BasketDocument = Document & Basket;
 
@@ -24,13 +10,10 @@ export class Basket {
   userId!: string;
 
   @Prop()
-  flights!: IFlight[];
+  flights!: BasketFlightSchema[];
 
   @Prop()
   expiryTime!: Date;
-
-  @Prop()
-  totalPrice!: number;
 }
 
 export const BasketSchema = SchemaFactory.createForClass(Basket);

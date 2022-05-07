@@ -1,7 +1,7 @@
 import { Schema, Prop, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
-import { IPayment } from 'src/payment/schemas/payment.schema';
-import { IReservedFlight } from '../reservation.service';
+
+import { IReservedFlight } from '../interfaces/IReservedFlight';
 
 export type ReservationDocument = Document & Reservation;
 
@@ -24,9 +24,6 @@ export class Reservation {
 
   @Prop()
   isConfirmed!: boolean;
-
-  @Prop()
-  payments!: IPayment[];
 }
 
 export const ReservationSchema = SchemaFactory.createForClass(Reservation);

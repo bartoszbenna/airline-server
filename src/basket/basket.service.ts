@@ -1,218 +1,246 @@
-import { Inject, Injectable, forwardRef } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import {
+  Inject,
+  Injectable,
+  forwardRef,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { Model, Connection, ClientSession } from 'mongoose';
 import { LoginService } from 'src/login/login.service';
-import { UserDocument } from 'src/login/schemas/user.schema';
 import { SearchService } from 'src/search/search.service';
-import { Basket, BasketDocument, IFlight } from './schemas/basket.schema';
+import { BasketFlightDto } from './dtos/BasketFlight.dto';
+import { Basket, BasketDocument } from './schemas/basket.schema';
 
 @Injectable()
 export class BasketService {
-  private basketExpiryTimeInMinutes: number = 15;
+  private basketExpiryTimeMinutes = 15;
 
   constructor(
     private loginService: LoginService,
     @Inject(forwardRef(() => SearchService))
     private searchService: SearchService,
     @InjectModel(Basket.name) private basketModel: Model<BasketDocument>,
+    @InjectConnection() private mongoConnection: Connection,
   ) {}
 
-  public async getBasket(token: string) {
-    const basketPromise = new Promise<BasketDocument>(
-      async (resolve, reject) => {
-        let tokenPayload: any;
-        try {
-          tokenPayload = this.loginService.decodeToken(token);
-        } catch (error) {
-          reject('invalidToken');
-          return;
-        }
-        let matchingUser: UserDocument | null;
-        try {
-          matchingUser = await this.loginService.getUserInfo(
-            tokenPayload.userId,
-          );
-        } catch (error) {
-          reject('databaseError');
-          return;
-        }
-        if (
-          matchingUser != null &&
-          matchingUser != undefined &&
-          tokenPayload.currentKey == matchingUser.currentKey
-        ) {
-          let existingBasket: BasketDocument | null;
-          try {
-            existingBasket = await this.basketModel.findOne({
-              userId: matchingUser._id,
-            });
-          } catch (error) {
-            reject('databaseError');
-            return;
-          }
-          if (existingBasket != null && existingBasket != undefined) {
-            if (existingBasket.expiryTime > new Date()) {
-              resolve(existingBasket);
-              return;
-            } else {
-              for (let flight of existingBasket.flights) {
-                await this.searchService.changeAvailability(
-                  flight._id,
-                  flight.adult + flight.child,
-                );
-              }
-              await existingBasket.remove();
-            }
-          }
-          try {
-            const basket = await this.createBasket(matchingUser._id);
-            resolve(basket);
-            return;
-          } catch (error) {
-            reject('databaseError');
-            return;
-          }
-        }
-      },
-    );
-    const result = await basketPromise;
-    return result;
-  }
-
-  public async getBasketById(id: string) {
+  public async getBasket(token: string): Promise<BasketDocument | null> {
     try {
-      const basket = await this.basketModel.findById(id);
-      return basket;
-    } catch (error) {
-      return undefined;
+      const userInfo = await this.loginService.validateAndGetTokenInfo(token);
+      if (!userInfo) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
+      const basket = await this.basketModel
+        .findOne({
+          userId: userInfo._id,
+        })
+        .populate({
+          path: 'flights.flightData',
+          model: 'Flight',
+        });
+      if (basket) {
+        if (basket.expiryTime < new Date()) {
+          await this.removeBasket(basket.id, true);
+        } else {
+          return basket;
+        }
+      }
+      return await this.createBasket(userInfo._id);
+    } catch (err) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
-  public async createBasket(userId: string) {
-    const basketCreationPromise = new Promise<BasketDocument>(
-      async (resolve, reject) => {
+  public async getBasketById(
+    id: string,
+    session?: ClientSession,
+  ): Promise<BasketDocument | null> {
+    try {
+      return await this.basketModel
+        .findById(id)
+        .populate({
+          path: 'flights.flightData',
+          model: 'Flight',
+        })
+        .session(session ?? null);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  public async createBasket(userId: string): Promise<BasketDocument | null> {
+    try {
+      const expiryTime = new Date();
+      expiryTime.setMinutes(
+        expiryTime.getMinutes() + this.basketExpiryTimeMinutes,
+      );
+
+      return await this.basketModel.create({
+        userId: userId,
+        flights: [],
+        expiryTime: expiryTime,
+        totalPrice: 0,
+      });
+    } catch (err) {
+      return null;
+    }
+  }
+
+  public async uploadBasket(
+    flights: BasketFlightDto[],
+    token: string,
+  ): Promise<BasketDocument> {
+    try {
+      const basket = await this.getBasket(token);
+      if (!basket) {
+        throw new HttpException('Basket not found', HttpStatus.NOT_FOUND);
+      }
+
+      const session = await this.mongoConnection.startSession();
+      try {
+        session.startTransaction();
+        // Change availability on flights already in basket
+        if (basket.flights.length != 0) {
+          for (const flight of basket.flights) {
+            await this.searchService.changeAvailability(
+              flight.flightData._id,
+              flight.adult + flight.child,
+            );
+          }
+        }
+
+        // Reset basket
+        basket.flights = [];
+
+        for (const flight of flights) {
+          if (!this.checkFlightFormat(flight)) {
+            throw new HttpException('Bad request', HttpStatus.BAD_REQUEST);
+          }
+
+          const dbFlight = await this.searchService.getFlightById(
+            flight.flightId,
+            session,
+          );
+
+          if (!dbFlight) {
+            throw new HttpException('Flight not found', HttpStatus.NOT_FOUND);
+          }
+
+          if (dbFlight.available < flight.adult + flight.child) {
+            throw new HttpException(
+              'Flight not available',
+              HttpStatus.CONFLICT,
+            );
+          }
+
+          // Reserve availability for selected flights
+          await this.searchService.changeAvailability(
+            dbFlight._id,
+            (flight.adult + flight.child) * -1,
+            session,
+          );
+
+          basket.flights.push({
+            flightData: dbFlight._id,
+            adult: flight.adult,
+            child: flight.child,
+            infant: flight.infant,
+            unitPrice: dbFlight.price,
+          });
+        }
+
         const expiryTime = new Date();
         expiryTime.setMinutes(
-          expiryTime.getMinutes() + this.basketExpiryTimeInMinutes,
+          expiryTime.getMinutes() + this.basketExpiryTimeMinutes,
         );
-        try {
-          const basket = await this.basketModel.create({
-            userId: userId,
-            flights: [],
-            expiryTime: expiryTime,
-            totalPrice: 0,
-          });
-          resolve(basket);
-        } catch (error) {
-          reject('databaseError');
+        basket.expiryTime = expiryTime;
+        await basket.save({ session });
+        await session.commitTransaction();
+        return basket.populate({
+          path: 'flights.flightData',
+          model: 'Flight',
+        });
+      } catch (err) {
+        await session.abortTransaction();
+        if (err instanceof HttpException) {
+          throw err;
         }
-      },
-    );
-    const result = await basketCreationPromise;
-    return result;
+        throw new HttpException(
+          'Internal server error',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      } finally {
+        session.endSession();
+      }
+    } catch (err) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
-  public async uploadBasket(flights: IFlight[], token: string) {
-    await this.removeExpiredBaskets();
-    const basketAdditionPromise = new Promise<BasketDocument>(
-      async (resolve, reject) => {
-        let basket: BasketDocument;
-        try {
-          basket = await this.getBasket(token);
-        } catch (error) {
-          if (error == 'invalidToken' || error == 'databaseError') {
-            reject(error);
-            return;
-          } else {
-            reject('databaseError');
-            return;
+  public async removeBasket(
+    id: string,
+    changeAvailability: boolean,
+    session?: ClientSession,
+  ): Promise<boolean> {
+    try {
+      const basket = await this.getBasketById(id, session);
+      if (basket) {
+        if (changeAvailability) {
+          for (const flight of basket.flights) {
+            await this.searchService.changeAvailability(
+              flight.flightData._id,
+              flight.adult + flight.child,
+              session,
+            );
           }
         }
-        if (basket.flights.length != 0) {
+        await basket.remove(session ? { session } : undefined);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // TODO: remove this
+  public async removeExpiredBaskets() {
+    try {
+      const expiredBaskets = await this.basketModel.find({
+        expiryTime: { $lte: new Date() },
+      });
+      for (const basket of expiredBaskets) {
+        for (const flight of basket.flights) {
           try {
-            for (let flight of basket.flights) {
-              await this.searchService.changeAvailability(
-                flight._id,
-                flight.adult + flight.child,
-              );
-            }
+            await this.searchService.changeAvailability(
+              flight.flightData._id,
+              flight.adult + flight.child,
+            );
           } catch (error) {
-            reject('databaseError');
-            return;
+            continue;
           }
         }
-        basket.flights = [];
-        basket.totalPrice = 0;
-        try {
-          for (let flight of flights) {
-            if (!this.checkFlightFormat(flight)) {
-              reject('invalidData');
-              return;
-            }
-            try {
-              const verifiedFlight = await this.searchService.getFlightById(
-                flight._id,
-              );
-              if (verifiedFlight.available < flight.adult + flight.child) {
-                reject('flightNotAvailable');
-              } else {
-                await this.searchService.changeAvailability(
-                  verifiedFlight._id,
-                  (flight.adult + flight.child) * -1,
-                );
-                basket.flights.push({
-                  _id: verifiedFlight._id,
-                  flightNumber: verifiedFlight.flightNumber,
-                  depDate: verifiedFlight.depDate,
-                  arrDate: verifiedFlight.arrDate,
-                  depCode: verifiedFlight.depCode,
-                  arrCode: verifiedFlight.arrCode,
-                  planeType: verifiedFlight.planeType,
-                  occupiedSeats: verifiedFlight.occupiedSeats,
-                  price: verifiedFlight.price,
-                  adult: flight.adult,
-                  child: flight.child,
-                  infant: flight.infant,
-                });
-                basket.totalPrice +=
-                  (flight.adult + flight.child + flight.infant) *
-                  verifiedFlight.price;
-              }
-            } catch (error) {
-              if (error == 'flightNotFound') {
-                reject('flightNotFound');
-                return;
-              } else {
-                reject('databaseError');
-                return;
-              }
-            }
-          }
-        } catch (error) {
-          reject('invalidData');
-          return;
-        }
-        try {
-          const expiryTime = new Date();
-          expiryTime.setMinutes(
-            expiryTime.getMinutes() + this.basketExpiryTimeInMinutes,
-          );
-          basket.expiryTime = expiryTime;
-          const newBasket = await basket.save();
-          resolve(newBasket);
-          return;
-        } catch (error) {
-          reject('databaseError');
-          return;
-        }
-      },
-    );
-    const result = await basketAdditionPromise;
-    return result;
+        await basket.remove();
+      }
+    } catch (error) {
+      console.log('removeExpiredBaskets error! message: ' + error);
+    }
   }
 
-  private checkFlightFormat(flight: IFlight) {
-    if (flight._id == undefined || typeof flight._id != 'string') {
+  private checkFlightFormat(flight: BasketFlightDto) {
+    if (flight.flightId == undefined || typeof flight.flightId != 'string') {
       return false;
     }
     if (flight.adult == undefined || typeof flight.adult != 'number') {
@@ -225,50 +253,5 @@ export class BasketService {
       return false;
     }
     return true;
-  }
-
-  public async removeBasket(id: string, changeAvailability: boolean) {
-    try {
-      const basket = await this.getBasketById(id);
-      if (basket != undefined && basket != null) {
-        if (changeAvailability) {
-          for (let flight of basket.flights) {
-            await this.searchService.changeAvailability(
-              flight._id,
-              flight.adult + flight.child,
-            );
-          }
-        }
-        await basket.remove();
-        return true;
-      }
-      return false;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  public async removeExpiredBaskets() {
-    try {
-      const expiredBaskets = await this.basketModel.find({
-        expiryTime: { $lte: new Date() },
-      });
-      for (let basket of expiredBaskets) {
-        for (let flight of basket.flights) {
-          try {
-            await this.searchService.changeAvailability(
-              flight._id,
-              flight.adult + flight.child,
-            );
-          } catch (error) {
-            // shit happens, we need to continue
-          }
-        }
-        await basket.remove();
-      }
-    } catch (error) {
-      console.log('removeExpiredBaskets error! message: ' + error);
-    }
-    return;
   }
 }

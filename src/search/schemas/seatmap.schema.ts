@@ -6,7 +6,7 @@ export type SeatMapDocument = Document & SeatMap;
 @Schema()
 export class SeatMap {
   @Prop()
-  type!: String;
+  type!: string;
 
   @Prop()
   seatMap!: string[][];

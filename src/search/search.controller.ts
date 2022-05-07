@@ -4,46 +4,34 @@ import {
   Get,
   HttpException,
   HttpStatus,
-  Post,
+  Param,
 } from '@nestjs/common';
 import { SearchService } from './search.service';
-import moment from 'moment';
+import { GetOffersDto } from './dtos/GetOffers.dto';
+import { GetResultsDto } from './dtos/GetResults.dto';
+import { GetSeatMapDto } from './dtos/GetSeatMap.dto';
+import { GetOccupiedSeatsDto } from './dtos/GetOccupiedSeats.dto';
+import { ApiTags } from '@nestjs/swagger';
+import { FlightDocument } from './schemas/flight.schema';
+import { AirportDocument } from './schemas/airport.schema';
+import { SeatMapDocument } from './schemas/seatmap.schema';
 
 @Controller('search')
+@ApiTags('search')
 export class SearchController {
   constructor(private searchService: SearchService) {}
 
   @Get('getResults')
-  getResults(@Query() params: any) {
+  public async getResults(@Query() params: GetResultsDto): Promise<{
+    outbound: FlightDocument[];
+    inbound?: FlightDocument[] | undefined;
+  }> {
     try {
-      const searchForm = {
-        oneWay: params.oneWay == 'true',
-        departure: params.departure,
-        arrival: params.arrival,
-        outDate: moment.utc(params.outDate).toDate(),
-        inDate: moment.utc(params.inDate).toDate(),
-        adult: Number(params.adult),
-        child: Number(params.child),
-        infant: Number(params.infant),
-      };
-      try {
-        return this.searchService.search(searchForm);
-      } catch (error) {
-        throw new HttpException(
-          'Internal server error',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
+      return await this.searchService.search(params);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
       }
-    } catch (error) {
-      throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST);
-    }
-  }
-
-  @Get('getAirports')
-  getAirports() {
-    try {
-      return this.searchService.getAirports();
-    } catch (error) {
       throw new HttpException(
         'Internal server error',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -51,58 +39,75 @@ export class SearchController {
     }
   }
 
-  @Get('getSeatMap')
-  async getSeatMap(@Query() params: any) {
-    const type: string = params.type;
-    if (!type) {
-      throw new HttpException('Bad request', HttpStatus.BAD_REQUEST);
-    }
+  @Get('getAirports')
+  public async getAirports(): Promise<AirportDocument[]> {
     try {
-      const result = await this.searchService.getSeatMap(type.toUpperCase());
-      return result;
+      return await this.searchService.getAirports();
     } catch (error) {
-      if (error == 'notFound') {
-        throw new HttpException('Bad request', HttpStatus.BAD_REQUEST);
-      } else {
-        throw new HttpException(
-          'Internal server error',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
+      if (error instanceof HttpException) {
+        throw error;
       }
-    }
-  }
-
-  @Get('getOccupiedSeats')
-  async getOccupiedSeats(@Query() params: any) {
-    if (params.id == undefined || typeof params.id != 'string') {
-      throw new HttpException('Bad request', HttpStatus.BAD_REQUEST);
-    } else {
-      try {
-        return await this.searchService.getOccupiedSeats(params.id);
-      } catch (error) {
-        if (error == 'flightNotFound') {
-          throw new HttpException('Not found', HttpStatus.NOT_FOUND);
-        } else {
-          throw new HttpException(
-            'Internal server error',
-            HttpStatus.INTERNAL_SERVER_ERROR,
-          );
-        }
-      }
-    }
-  }
-
-  @Get('getOffers')
-  async getOffers(@Query() params: any) {
-    if (!params.airport) {
-      throw new HttpException('Bad request', HttpStatus.BAD_REQUEST);
-    }
-    try {
-      const offers = await this.searchService.getOffers(params.airport);
-      return offers;
-    } catch (error) {
       throw new HttpException(
         'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('getSeatMap/:type')
+  public async getSeatMap(
+    @Param() params: GetSeatMapDto,
+  ): Promise<SeatMapDocument> {
+    try {
+      const result = await this.searchService.getSeatMap(params.type);
+      if (result) {
+        return result;
+      }
+      throw new HttpException('Not found', HttpStatus.NOT_FOUND);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('getOccupiedSeats/:id')
+  public async getOccupiedSeats(
+    @Param() params: GetOccupiedSeatsDto,
+  ): Promise<FlightDocument> {
+    try {
+      const result = await this.searchService.getOccupiedSeats(params.id);
+      if (result) {
+        return result;
+      }
+      throw new HttpException('Not found', HttpStatus.NOT_FOUND);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('getOffers/:airport')
+  public async getOffers(
+    @Param() params: GetOffersDto,
+  ): Promise<FlightDocument[]> {
+    try {
+      return await this.searchService.getOffers(params.airport);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        `Internal server error`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

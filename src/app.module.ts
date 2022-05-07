@@ -6,11 +6,35 @@ import { SearchModule } from './search/search.module';
 import { LoginModule } from './login/login.module';
 import { BasketModule } from './basket/basket.module';
 import { ReservationModule } from './reservation/reservation.module';
-import { PaymentModule } from './payment/payment.module';
+import { ValidationPipe } from './shared/pipes/validation.pipe';
+import { APP_PIPE } from '@nestjs/core';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [MongooseModule.forRoot('mongodb+srv://admin:admin@airline-cluster.m0nwy.mongodb.net/airline?retryWrites=true&w=majority'), SearchModule, LoginModule, BasketModule, ReservationModule, PaymentModule],
+  imports: [
+    ConfigModule.forRoot(),
+    MongooseModule.forRoot(
+      (() => {
+        const url = process.env.DATABASE_URL;
+        const username = process.env.DATABASE_USER;
+        const password = process.env.DATABASE_PASSWORD;
+        if (!url || !username || !password) {
+          return '';
+        }
+        let connectionString = url.replace('<<DATABASE_USER>>', username);
+        connectionString = connectionString.replace(
+          '<<DATABASE_PASSWORD>>',
+          password,
+        );
+        return connectionString;
+      })(),
+    ),
+    SearchModule,
+    LoginModule,
+    BasketModule,
+    ReservationModule,
+  ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, { provide: APP_PIPE, useClass: ValidationPipe }],
 })
 export class AppModule {}

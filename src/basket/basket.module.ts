@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { BasketService } from './basket.service';
 import { BasketController } from './basket.controller';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -8,11 +8,12 @@ import { SearchModule } from 'src/search/search.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([{name: Basket.name, schema: BasketSchema}]),
+    MongooseModule.forFeature([{ name: Basket.name, schema: BasketSchema }]),
     LoginModule,
-    forwardRef(() => SearchModule)],
+    forwardRef(() => SearchModule),
+  ],
   providers: [BasketService],
   controllers: [BasketController],
-  exports: [BasketService]
+  exports: [BasketService],
 })
 export class BasketModule {}
