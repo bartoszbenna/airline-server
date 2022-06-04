@@ -68,7 +68,7 @@ export class LoginService {
     }
   }
 
-  public async verify(token: string): Promise<string> {
+  public async auth(token: string): Promise<string> {
     try {
       const user = await this.validateAndGetTokenInfo(token);
       if (user) {

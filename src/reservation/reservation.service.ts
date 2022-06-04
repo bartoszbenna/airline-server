@@ -5,10 +5,10 @@ import { BasketService } from 'src/basket/basket.service';
 import { BasketFlightSchema } from 'src/basket/schemas/basket-flight.schema';
 import { LoginService } from 'src/login/login.service';
 import { SearchService } from 'src/search/search.service';
+import { CreateReservationDto } from './dto/CreateReservation.dto';
+import { PassengerDataDto } from './dto/PassengerData.dto';
 import { PassengerType } from './enums/PassengerType';
 import { IPassenger } from './interfaces/IPassenger';
-import { IPassengerData } from './interfaces/IPassengerData';
-import { IReservationCreationData } from './interfaces/IReservationCreationData';
 import { IReservedFlight } from './interfaces/IReservedFlight';
 import { Reservation, ReservationDocument } from './schemas/reservation.schema';
 
@@ -34,7 +34,7 @@ export class ReservationService {
   }
 
   public async createNewReservation(
-    data: IReservationCreationData,
+    data: CreateReservationDto,
     token: string,
   ): Promise<ReservationDocument[]> {
     const userInfo = await this.loginService.validateAndGetTokenInfo(token);
@@ -256,7 +256,7 @@ export class ReservationService {
   }
 
   // TODO: implement dto checking in controller
-  private verifyResCreationData(data: IReservationCreationData): boolean {
+  private verifyResCreationData(data: CreateReservationDto): boolean {
     try {
       if (data == undefined) {
         return false;
@@ -285,7 +285,7 @@ export class ReservationService {
   }
 
   private verifyPaxNumber(
-    passengers: IPassengerData[],
+    passengers: PassengerDataDto[],
     flights: BasketFlightSchema[],
   ): boolean {
     let numberOfAdults = 0;

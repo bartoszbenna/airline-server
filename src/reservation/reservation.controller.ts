@@ -9,20 +9,21 @@ import {
   Patch,
   Param,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ConfirmReservationDto } from './dto/ConfirmReservation.dto';
-import { IReservationCreationData } from './interfaces/IReservationCreationData';
+import { CreateReservationDto } from './dto/CreateReservation.dto';
 import { ReservationService } from './reservation.service';
 import { ReservationDocument } from './schemas/reservation.schema';
 
 @ApiTags('reservation')
+@ApiBearerAuth()
 @Controller('reservation')
 export class ReservationController {
   constructor(private reservationService: ReservationService) {}
 
   @Post('create')
   async createReservation(
-    @Body() data: IReservationCreationData,
+    @Body() data: CreateReservationDto,
     @Headers('Authorization') token: string,
   ): Promise<ReservationDocument[]> {
     if (!token) {

@@ -7,18 +7,25 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiInternalServerErrorResponse,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { LoginDataDto } from './dtos/LoginData.dto';
 import { SignupDataDto } from './dtos/SignupData.dto';
 import { LoginService } from './login.service';
 
 @ApiTags('login')
+@ApiInternalServerErrorResponse()
+@ApiUnauthorizedResponse()
 @Controller('login')
 export class LoginController {
   constructor(private loginService: LoginService) {}
 
-  @Post('authorize')
-  async authorize(@Body() data: LoginDataDto): Promise<string> {
+  @Post('login')
+  async login(@Body() data: LoginDataDto): Promise<string> {
     try {
       return await this.loginService.login(data.email, data.password);
     } catch (e) {
@@ -47,15 +54,16 @@ export class LoginController {
     }
   }
 
-  @Get('verify')
-  public async verify(
+  @ApiBearerAuth()
+  @Get('auth')
+  public async auth(
     @Headers('Authorization') accessToken: string,
   ): Promise<string> {
     if (!accessToken) {
       throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
     }
     try {
-      const result = await this.loginService.verify(accessToken);
+      const result = await this.loginService.auth(accessToken);
       if (!result) {
         throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
       }
