@@ -36,22 +36,22 @@ export class SearchService {
     let minOutDate = DateTime.fromISO(outDate)
       .toUTC()
       .minus({ days: 1 })
-      .startOf('days');
+      .startOf('day');
     const maxOutDate = DateTime.fromISO(outDate)
       .toUTC()
       .plus({ days: 1 })
-      .endOf('days');
+      .endOf('day');
     let minInDate = DateTime.fromISO(inDate)
       .toUTC()
       .minus({ days: 1 })
-      .startOf('days');
+      .startOf('day');
     const maxInDate = DateTime.fromISO(inDate)
       .toUTC()
       .plus({ days: 1 })
-      .endOf('days');
+      .endOf('day');
 
     if (minOutDate < DateTime.now()) {
-      minOutDate = DateTime.now().startOf('days');
+      minOutDate = DateTime.now().startOf('day');
     }
 
     if (minInDate < minOutDate) {
